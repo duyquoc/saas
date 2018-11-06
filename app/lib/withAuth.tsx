@@ -1,25 +1,70 @@
-import React from 'react';
+import { inject, observer } from 'mobx-react';
 import Router from 'next/router';
+import React from 'react';
 
-import { Store } from './store';
-import withStore from './withStore';
+import * as NProgress from 'nprogress';
+import * as gtag from './gtag';
+import { getStore, Store } from './store';
+
+Router.onRouteChangeStart = () => {
+  NProgress.start();
+};
+
+Router.onRouteChangeComplete = url => {
+  NProgress.done();
+  gtag.pageview(url);
+
+  const store = getStore();
+  if (store) {
+    store.changeCurrentUrl(url);
+  }
+};
+
+Router.onRouteChangeError = () => NProgress.done();
 
 export default function withAuth(
   BaseComponent,
-  { loginRequired = true, logoutRequired = false, adminRequired = false } = {},
+  { loginRequired = true, logoutRequired = false, teamRequired = true } = {},
 ) {
-  class App extends React.Component<{ store: Store }> {
-    static async getInitialProps(ctx) {
-      const props: any = {};
+  BaseComponent = inject('store')(BaseComponent);
 
-      if (BaseComponent.getInitialProps) {
-        Object.assign(props, (await BaseComponent.getInitialProps(ctx)) || {});
+  class WithAuth extends React.Component<{ store: Store }> {
+    public static async getInitialProps(ctx) {
+      const { query, req, pathname } = ctx;
+
+      let baseComponentProps = {};
+
+      let firstGridItem = true;
+
+      if (
+        pathname.includes('/login') ||
+        pathname.includes('/signup') ||
+        pathname.includes('/invitation') ||
+        pathname.includes('/create-team')
+      ) {
+        firstGridItem = false;
       }
 
-      return props;
+      const {
+        teamSlug,
+        discussionSlug,
+      } = query;
+
+      if (BaseComponent.getInitialProps) {
+        baseComponentProps = await BaseComponent.getInitialProps(ctx);
+      }
+
+      return {
+        ...baseComponentProps,
+        teamSlug,
+        discussionSlug,
+        isServer: !!req,
+        teamRequired,
+        firstGridItem,
+      };
     }
 
-    componentDidMount() {
+    public componentDidMount() {
       const { store } = this.props;
 
       const user = store.currentUser;
@@ -33,16 +78,12 @@ export default function withAuth(
       let asUrl = '/login';
       if (user) {
         if (!user.defaultTeamSlug) {
-          redirectUrl = '/settings/create-team';
-          asUrl = '/settings/create-team';
+          redirectUrl = '/create-team';
+          asUrl = '/create-team';
         } else {
-          redirectUrl = `/topics/detail?teamSlug=${user.defaultTeamSlug}&topicSlug=projects`;
-          asUrl = `/team/${user.defaultTeamSlug}/t/projects`;
+          redirectUrl = `/discussion?teamSlug=${user.defaultTeamSlug}`;
+          asUrl = `/team/${user.defaultTeamSlug}/discussions`;
         }
-      }
-
-      if (adminRequired && (!user || !user.isAdmin)) {
-        Router.push(redirectUrl, asUrl);
       }
 
       if (logoutRequired && user) {
@@ -50,15 +91,11 @@ export default function withAuth(
       }
     }
 
-    render() {
+    public render() {
       const { store } = this.props;
       const user = store.currentUser;
 
       if (loginRequired && !logoutRequired && !user) {
-        return null;
-      }
-
-      if (adminRequired && (!user || !user.isAdmin)) {
         return null;
       }
 
@@ -70,5 +107,5 @@ export default function withAuth(
     }
   }
 
-  return withStore(App);
+  return inject('store')(observer(WithAuth));
 }

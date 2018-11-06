@@ -1,64 +1,53 @@
 import * as mobx from 'mobx';
-import { observable, action, IObservableArray, runInAction } from 'mobx';
+import { action, decorate, IObservableArray, observable, runInAction } from 'mobx';
 
+import { addTeam } from '../api/team-leader';
 import { getTeamList } from '../api/team-member';
-import { addTeam } from '../../lib/api/team-leader';
 
-import { Post } from './post';
 import { Discussion } from './discussion';
-import { Topic } from './topic';
+import { Post } from './post';
 import { Team } from './team';
 import { User } from './user';
 
-mobx.configure({ enforceActions: true });
-
-// TODO: Remove cached data at some point. Otherwise memory can become very big.
-//       Consider removing all data when Team changed and
-//       when page changed remove previous page's data after some delay.
+mobx.configure({ enforceActions: 'observed' });
 
 class Store {
-  @observable teams: IObservableArray<Team> = <IObservableArray>[];
+  public isServer: boolean;
 
-  @observable isLoadingTeams = false;
-  @observable isInitialTeamsLoaded = false;
+  public teams: IObservableArray<Team> = observable([]);
 
-  @observable currentUser?: User = null;
-  @observable currentTeam?: Team;
-  @observable isLoggingIn = true;
+  public isLoadingTeams = false;
+  public isInitialTeamsLoaded = false;
 
-  constructor(initialState: any = {}) {
+  public currentUser?: User = null;
+  public currentTeam?: Team;
+  public currentUrl: string = '';
+  public isLoggingIn = true;
+
+  constructor({ initialState = {}, isServer }: { initialState?: any; isServer: boolean }) {
+    this.isServer = !!isServer;
+
+    this.setCurrentUser(initialState.user, !initialState.teams, initialState.teamSlug);
+
     if (initialState.teams) {
       this.setTeams(initialState.teams, initialState.teamSlug);
     }
 
-    this.setCurrentUser(initialState.user, initialState.teamSlug);
+    this.currentUrl = initialState.currentUrl || '';
   }
 
-  @action
-  setCurrentUser(user, selectedTeamSlug: string) {
-    if (user) {
-      this.currentUser = new User(user);
-    } else {
-      this.currentUser = null;
-    }
-
-    this.isLoggingIn = false;
-
-    if (user) {
-      this.loadTeams(selectedTeamSlug);
-    }
+  public changeCurrentUrl(url: string) {
+    this.currentUrl = url;
   }
 
-  @action
-  changeUserState(user?, selectedTeamSlug?: string) {
+  public changeUserState(user?, selectedTeamSlug?: string) {
     this.teams.clear();
 
     this.isInitialTeamsLoaded = false;
-    this.setCurrentUser(user, selectedTeamSlug);
+    this.setCurrentUser(user, true, selectedTeamSlug);
   }
 
-  @action
-  setTeams(teams: any[], selectedTeamSlug?: string) {
+  public setTeams(teams: any[], selectedTeamSlug?: string) {
     const teamObjs = teams.map(t => new Team({ store: this, ...t }));
 
     if (teams && teams.length > 0 && !selectedTeamSlug) {
@@ -74,8 +63,7 @@ class Store {
     this.isInitialTeamsLoaded = true;
   }
 
-  @action
-  async addTeam({ name, avatarUrl }: { name: string; avatarUrl: string }): Promise<Team> {
+  public async addTeam({ name, avatarUrl }: { name: string; avatarUrl: string }): Promise<Team> {
     const data = await addTeam({ name, avatarUrl });
     const team = new Team({ store: this, ...data });
 
@@ -86,8 +74,7 @@ class Store {
     return team;
   }
 
-  @action
-  async loadTeams(selectedTeamSlug?: string) {
+  public async loadTeams(selectedTeamSlug?: string) {
     if (this.isLoadingTeams || this.isInitialTeamsLoaded) {
       return;
     }
@@ -109,8 +96,7 @@ class Store {
     }
   }
 
-  @action
-  setCurrentTeam(slug: string) {
+  public setCurrentTeam(slug: string) {
     if (this.currentTeam) {
       if (this.currentTeam.slug === slug) {
         return;
@@ -119,11 +105,9 @@ class Store {
 
     let found = false;
 
-    for (let i = 0; i < this.teams.length; i++) {
-      const team = this.teams[i];
+    for (const team of this.teams) {
       if (team.slug === slug) {
         found = true;
-        team.loadInitialTopics().catch(err => console.log(err));
         team.loadInitialMembers().catch(err => console.log(err));
         this.currentTeam = team;
         break;
@@ -134,16 +118,48 @@ class Store {
       this.currentTeam = null;
     }
   }
+
+  private setCurrentUser(user, isLoadTeam: boolean, selectedTeamSlug: string) {
+    if (user) {
+      this.currentUser = new User(user);
+    } else {
+      this.currentUser = null;
+    }
+
+    this.isLoggingIn = false;
+
+    if (user && isLoadTeam) {
+      this.loadTeams(selectedTeamSlug);
+    }
+  }
 }
+
+decorate(Store, {
+  teams: observable,
+  isLoadingTeams: observable,
+  isInitialTeamsLoaded: observable,
+  currentUser: observable,
+  currentTeam: observable,
+  currentUrl: observable,
+  isLoggingIn: observable,
+
+  changeCurrentUrl: action,
+  setCurrentUser: action,
+  changeUserState: action,
+  setTeams: action,
+  addTeam: action,
+  loadTeams: action,
+  setCurrentTeam: action,
+});
 
 let store: Store = null;
 
 function initStore(initialState = {}) {
   if (!process.browser) {
-    return new Store(initialState);
+    return new Store({ initialState, isServer: true });
   } else {
     if (store === null) {
-      store = new Store(initialState);
+      store = new Store({ initialState, isServer: false });
     }
 
     return store;
@@ -154,4 +170,4 @@ function getStore() {
   return store;
 }
 
-export { Discussion, Post, Topic, Team, User, Store, initStore, getStore };
+export { Discussion, Post, Team, User, Store, initStore, getStore };

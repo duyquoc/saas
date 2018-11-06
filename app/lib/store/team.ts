@@ -1,63 +1,87 @@
-import { observable, action, IObservableArray, runInAction } from 'mobx';
+import { action, computed, decorate, IObservableArray, observable, runInAction } from 'mobx';
 import Router from 'next/router';
 
 import {
-  getTeamMembers,
+  cancelSubscriptionApiMethod,
+  createSubscriptionApiMethod,
   getTeamInvitedUsers,
-  addTopic,
-  deleteTopic,
+  getTeamMembers,
   inviteMember,
   removeMember,
   updateTeam,
 } from '../api/team-leader';
 
-import { getTopicList } from '../api/team-member';
+import { addDiscussion, deleteDiscussion, getDiscussionList } from '../api/team-member';
 
-import { Topic } from './topic';
-import { User } from './user';
-import { Invitation } from './invitation';
+import { Discussion } from './discussion';
 import { Store } from './index';
-// import invitation from 'pages/invitation';
+import { Invitation } from './invitation';
+import { User } from './user';
 
-export class Team {
-  store: Store;
+class Team {
+  public store: Store;
 
-  @observable private isLoadingTopics = false;
-  @observable isInitialTopicsLoaded = false;
+  public _id: string;
+  public teamLeaderId: string;
 
-  _id: string;
-  teamLeaderId: string;
+  public name: string;
+  public slug: string;
+  public avatarUrl: string;
+  public memberIds: IObservableArray<string> = observable([]);
 
-  @observable slug: string;
-  @observable name: string;
-  @observable avatarUrl: string;
-  @observable memberIds: string[];
-  @observable topics: IObservableArray<Topic> = <IObservableArray>[];
-  @observable privateTopics: IObservableArray<Topic> = <IObservableArray>[];
-  @observable currentTopic?: Topic;
+  public isSubscriptionActive: boolean;
+  public isPaymentFailed: boolean;
 
-  @observable currentTopicSlug?: string;
-  @observable currentDiscussionSlug?: string;
+  public members: Map<string, User> = new Map();
+  public invitedUsers: Map<string, Invitation> = new Map();
 
-  @observable members: Map<string, User> = new Map();
-  @observable invitedUsers: Map<string, Invitation> = new Map();
-  @observable private isLoadingMembers = false;
-  @observable private isInitialMembersLoaded = false;
+  public currentDiscussion?: Discussion;
+  public currentDiscussionSlug?: string;
+  public discussions: IObservableArray<Discussion> = observable([]);
+  public isLoadingDiscussions = false;
+
+  public stripeSubscription: {
+    id: string;
+    object: string;
+    application_fee_percent: number;
+    billing: string;
+    cancel_at_period_end: boolean;
+    billing_cycle_anchor: number;
+    canceled_at: number;
+    created: number;
+  };
+
+  private isLoadingMembers = false;
+  private isInitialMembersLoaded = false;
+  private initialDiscussionSlug: string = '';
 
   constructor(params) {
-    Object.assign(this, params);
+    this._id = params._id;
+    this.teamLeaderId = params.teamLeaderId;
+    this.slug = params.slug;
+    this.name = params.name;
+    this.avatarUrl = params.avatarUrl;
+    this.memberIds.replace(params.memberIds || []);
+    this.currentDiscussionSlug = params.currentDiscussionSlug || null;
 
-    if (params.initialTopics) {
-      this.setInitialTopics(params.initialTopics);
-    }
+    this.isSubscriptionActive = params.isSubscriptionActive;
+    this.stripeSubscription = params.stripeSubscription;
+    this.isPaymentFailed = params.isPaymentFailed;
+
+    this.store = params.store;
 
     if (params.initialMembers) {
       this.setInitialMembers(params.initialMembers, params.initialInvitations);
     }
+
+    if (params.initialDiscussions) {
+      this.setInitialDiscussions(params.initialDiscussions);
+    } else {
+      this.loadDiscussions();
+    }
   }
 
-  @action
-  async edit({ name, avatarUrl }: { name: string; avatarUrl: string }) {
+  public async edit({ name, avatarUrl }: { name: string; avatarUrl: string }) {
     try {
       const { slug } = await updateTeam({
         teamId: this._id,
@@ -76,179 +100,159 @@ export class Team {
     }
   }
 
-  @action
-  setInitialTopics(topics: any[]) {
-    this.topics.clear();
-
-    const topicObjs = topics.map(t => new Topic({ team: this, store: this.store, ...t }));
-
-    this.topics.replace(topicObjs);
-
-    if (this.currentTopicSlug) {
-      this.setCurrentTopic(this.currentTopicSlug);
+  public setCurrentDiscussion({ slug }: { slug: string }) {
+    this.currentDiscussionSlug = slug;
+    for (const discussion of this.discussions) {
+      if (discussion && discussion.slug === slug) {
+        this.currentDiscussion = discussion;
+        break;
+      }
     }
-
-    this.isInitialTopicsLoaded = true;
   }
 
-  @action
-  async loadInitialTopics() {
-    if (this.isLoadingTopics || this.isInitialTopicsLoaded) {
+  public getDiscussionBySlug(slug): Discussion {
+    return this.discussions.find(d => d.slug === slug);
+  }
+
+  public setInitialDiscussionSlug(slug: string) {
+    if (!this.initialDiscussionSlug) {
+      this.initialDiscussionSlug = slug;
+    }
+  }
+
+  public setInitialDiscussions(discussions) {
+    const discussionObjs = discussions.map(
+      t => new Discussion({ team: this, store: this.store, ...t }),
+    );
+
+    this.discussions.replace(discussionObjs);
+
+    if (!this.currentDiscussionSlug && this.discussions.length > 0) {
+      this.currentDiscussionSlug = this.orderedDiscussions[0].slug;
+    }
+
+    if (this.currentDiscussionSlug) {
+      this.setCurrentDiscussion({ slug: this.currentDiscussionSlug });
+    }
+  }
+
+  public async loadDiscussions() {
+    if (this.store.isServer || this.isLoadingDiscussions) {
       return;
     }
 
-    this.isLoadingTopics = true;
+    this.isLoadingDiscussions = true;
 
     try {
-      const { topics = [] } = await getTopicList(this._id);
-      const topicObjs = topics.map(t => new Topic({ team: this, store: this.store, ...t }));
+      const { discussions = [] } = await getDiscussionList({
+        teamId: this._id,
+      });
+      const newList: Discussion[] = [];
 
       runInAction(() => {
-        this.topics.replace(topicObjs);
+        discussions.forEach(d => {
+          const disObj = this.discussions.find(obj => obj._id === d._id);
+          if (disObj) {
+            disObj.changeLocalCache(d);
+            newList.push(disObj);
+          } else {
+            newList.push(new Discussion({ team: this, store: this.store, ...d }));
+          }
+        });
 
-        if (this.currentTopicSlug) {
-          this.setCurrentTopic(this.currentTopicSlug);
-        }
-
-        this.isLoadingTopics = false;
-        this.isInitialTopicsLoaded = true;
+        this.discussions.replace(newList);
       });
-    } catch (error) {
+    } finally {
       runInAction(() => {
-        this.isLoadingTopics = false;
+        this.isLoadingDiscussions = false;
       });
-
-      throw error;
     }
   }
 
-  @action
-  setCurrentTopicAndDiscussion({
-    topicSlug,
-    discussionSlug,
-  }: {
-    topicSlug: string;
-    discussionSlug: string;
-  }) {
-    this.currentTopicSlug = topicSlug;
-    this.currentDiscussionSlug = discussionSlug;
+  public addDiscussionToLocalCache(data): Discussion {
+    const obj = new Discussion({ team: this, store: this.store, ...data });
 
-    for (let i = 0; i < this.topics.length; i++) {
-      const topic = this.topics[i];
-      if (topic.slug === topicSlug) {
-        topic.setInitialDiscussionSlug(discussionSlug);
-        topic.currentDiscussionSlug = discussionSlug;
-        topic.loadInitialDiscussions();
-        this.currentTopic = topic;
-        break;
-      }
+    if (obj.memberIds.includes(this.store.currentUser._id)) {
+      this.discussions.push(obj);
+    }
+
+    return obj;
+  }
+
+  public editDiscussionFromLocalCache(data) {
+    const discussion = this.discussions.find(item => item._id === data.id);
+    if (discussion) {
+      discussion.changeLocalCache(data);
     }
   }
 
-  @action
-  setCurrentTopic(slug: string) {
-    let found = false;
-    for (let i = 0; i < this.topics.length; i++) {
-      const topic = this.topics[i];
-      if (topic.slug === slug) {
-        this.currentTopicSlug = slug;
-        if (this.currentDiscussionSlug) {
-          topic.setInitialDiscussionSlug(this.currentDiscussionSlug);
-          topic.currentDiscussionSlug = this.currentDiscussionSlug;
-        }
-
-        topic.loadInitialDiscussions().catch(err => console.log(err));
-        this.currentTopic = topic;
-        found = true;
-        break;
-      }
-    }
-
-    if (!found) {
-      this.currentTopic = null;
-      this.currentTopicSlug = null;
-    }
+  public removeDiscussionFromLocalCache(discussionId: string) {
+    const discussion = this.discussions.find(item => item._id === discussionId);
+    this.discussions.remove(discussion);
   }
 
-  @action
-  addTopicToLocalCache(data) {
-    const topicObj = new Topic({ team: this, store: this.store, ...data });
-    this.topics.unshift(topicObj);
-  }
-
-  @action
-  editTopicFromLocalCache(topicId: string, name: string) {
-    const topic = this.topics.find(t => t._id === topicId);
-    topic.name = name;
-  }
-
-  @action
-  removeTopicFromLocalCache(topicId: string) {
-    const topic = this.topics.find(t => t._id === topicId);
-    this.topics.remove(topic);
-  }
-
-  @action
-  async addTopic(data) {
-    const { topic } = await addTopic({
+  public async addDiscussion(data): Promise<Discussion> {
+    const { discussion } = await addDiscussion({
       teamId: this._id,
       ...data,
     });
 
-    runInAction(() => {
-      this.addTopicToLocalCache(topic);
-
-      Router.push(
-        `/topics/detail?teamSlug=${this.slug}&topicSlug=${topic.slug}`,
-        `/team/${this.slug}/t/${topic.slug}`,
-      );
+    return new Promise<Discussion>(resolve => {
+      runInAction(() => {
+        const obj = this.addDiscussionToLocalCache(discussion);
+        resolve(obj);
+      });
     });
   }
 
-  @action
-  async deleteTopic(topicId: string) {
-    const topic = this.topics.find(t => t._id === topicId);
-
-    await deleteTopic({
-      id: topicId,
+  public async deleteDiscussion(id: string) {
+    await deleteDiscussion({
+      id,
     });
 
     runInAction(() => {
-      this.removeTopicFromLocalCache(topicId);
+      const discussion = this.discussions.find(d => d._id === id);
 
-      if (this.store.currentTeam === this && this.currentTopic === topic) {
-        if (this.topics.length > 0) {
+      this.removeDiscussionFromLocalCache(id);
+
+      if (this.currentDiscussion === discussion) {
+        this.currentDiscussion = null;
+        this.currentDiscussionSlug = null;
+
+        if (this.discussions.length > 0) {
+          const d = this.discussions[0];
+
           Router.push(
-            `/topics/detail?teamSlug=${this.slug}&topicSlug=${this.topics[0].slug}`,
-            `/team/${this.slug}/t/${this.topics[0].slug}`,
+            `/discussion?teamSlug=${this.slug}&discussionSlug=${d.slug}`,
+            `/team/${this.slug}/discussions/${d.slug}`,
           );
         } else {
-          Router.push('/');
-          this.currentTopic = null;
-          this.currentTopicSlug = null;
+          Router.push(`/discussion?teamSlug=${this.slug}`, `/team/${this.slug}/discussions`);
         }
       }
     });
   }
 
-  @action
-  setInitialMembers(users, invitations) {
+  public setInitialMembers(users, invitations) {
     this.members.clear();
     this.invitedUsers.clear();
 
-    for (let i = 0; i < users.length; i++) {
-      this.members.set(users[i]._id, new User(users[i]));
+    for (const user of users) {
+      if (this.store.currentUser && this.store.currentUser._id === user._id) {
+        this.members.set(user._id, this.store.currentUser);
+      } else {
+        this.members.set(user._id, new User(user));
+      }
     }
 
-    for (let i = 0; i < invitations.length; i++) {
-      this.invitedUsers.set(invitations[i]._id, new Invitation(invitations[i]));
+    for (const invitation of invitations) {
+      this.invitedUsers.set(invitation._id, new Invitation(invitation));
     }
 
     this.isInitialMembersLoaded = true;
   }
 
-  @action
-  async loadInitialMembers() {
+  public async loadInitialMembers() {
     if (this.isLoadingMembers || this.isInitialMembersLoaded) {
       return;
     }
@@ -264,11 +268,11 @@ export class Team {
       }
 
       runInAction(() => {
-        for (let i = 0; i < users.length; i++) {
-          this.members.set(users[i]._id, new User(users[i]));
+        for (const user of users) {
+          this.members.set(user._id, new User(user));
         }
-        for (let i = 0; i < invitations.length; i++) {
-          this.invitedUsers.set(invitations[i]._id, new Invitation(invitations[i]));
+        for (const invitation of invitations) {
+          this.invitedUsers.set(invitation._id, new Invitation(invitation));
         }
 
         this.isLoadingMembers = false;
@@ -282,17 +286,100 @@ export class Team {
     }
   }
 
-  @action
-  async inviteMember(email: string) {
-    return await inviteMember({ teamId: this._id, email });
+  public async inviteMember({ email }: { email: string }) {
+    this.isLoadingMembers = true;
+    try {
+      const { newInvitation } = await inviteMember({ teamId: this._id, email });
+
+      runInAction(() => {
+        this.invitedUsers.set(newInvitation._id, new Invitation(newInvitation));
+        this.isLoadingMembers = false;
+      });
+    } catch (error) {
+      runInAction(() => {
+        this.isLoadingMembers = false;
+      });
+
+      throw error;
+    }
   }
 
-  @action
-  async removeMember(userId: string) {
+  public async removeMember(userId: string) {
     await removeMember({ teamId: this._id, userId });
 
     runInAction(() => {
       this.members.delete(userId);
     });
   }
+
+  get orderedDiscussions() {
+    return this.discussions.slice().sort();
+  }
+
+  public async createSubscription({ teamId }: { teamId: string }) {
+    try {
+      const { isSubscriptionActive, stripeSubscription } = await createSubscriptionApiMethod({ teamId });
+
+      runInAction(() => {
+        this.isSubscriptionActive = isSubscriptionActive;
+        this.stripeSubscription = stripeSubscription;
+      });
+    } catch (error) {
+      console.error(error);
+      throw error;
+    }
+  }
+
+  public async cancelSubscription({ teamId }: { teamId: string }) {
+    try {
+      const { isSubscriptionActive } = await cancelSubscriptionApiMethod({ teamId });
+
+      runInAction(() => {
+        this.isSubscriptionActive = isSubscriptionActive;
+      });
+    } catch (error) {
+      console.error(error);
+      throw error;
+    }
+  }
 }
+
+decorate(Team, {
+  name: observable,
+  slug: observable,
+  avatarUrl: observable,
+  memberIds: observable,
+  members: observable,
+  invitedUsers: observable,
+  isLoadingMembers: observable,
+  isInitialMembersLoaded: observable,
+
+  isSubscriptionActive: observable,
+  stripeSubscription: observable,
+  isPaymentFailed: observable,
+
+  edit: action,
+  setInitialMembers: action,
+  loadInitialMembers: action,
+  inviteMember: action,
+  removeMember: action,
+
+  currentDiscussion: observable,
+  currentDiscussionSlug: observable,
+  isLoadingDiscussions: observable,
+  discussions: observable,
+
+  setInitialDiscussions: action,
+  setCurrentDiscussion: action,
+  setInitialDiscussionSlug: action,
+  loadDiscussions: action,
+  addDiscussionToLocalCache: action,
+  editDiscussionFromLocalCache: action,
+  removeDiscussionFromLocalCache: action,
+  addDiscussion: action,
+  deleteDiscussion: action,
+
+  orderedDiscussions: computed,
+});
+
+export { Team };

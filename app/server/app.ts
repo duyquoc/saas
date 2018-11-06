@@ -1,12 +1,12 @@
 import * as express from 'express';
-import * as path from 'path';
-import * as next from 'next';
 import * as helmet from 'helmet';
 import * as mobxReact from 'mobx-react';
+import * as next from 'next';
+import * as path from 'path';
 
 import { getUser } from '../lib/api/public';
-import routesWithSlug from './routesWithSlug';
 import env from '../lib/env';
+import routesWithSlug from './routesWithSlug';
 
 mobxReact.useStaticRendering(true);
 
@@ -37,10 +37,6 @@ app.prepare().then(() => {
     server.set('trust proxy', 1); // sets req.hostname, req.ip
   }
 
-  server.get('/robots.txt', (_, res) => {
-    res.sendFile(path.join(__dirname, '../static', 'robots.txt'));
-  });
-
   // middleware that populates req.user via fetching from API
   server.use(async (req: any, _, nextfn) => {
     const headers: any = {};
@@ -62,10 +58,10 @@ app.prepare().then(() => {
     let redirectUrl = 'login';
 
     if (req.user) {
-      if (!req.user.defaultTeamSlug) {
-        redirectUrl = 'settings/create-team';
+      if (!req.user.isAdmin && !req.user.defaultTeamSlug) {
+        redirectUrl = 'create-team';
       } else {
-        redirectUrl = `team/${req.user.defaultTeamSlug}/t/projects`;
+        redirectUrl = `team/${req.user.defaultTeamSlug}/discussions`;
       }
     }
 
@@ -74,12 +70,18 @@ app.prepare().then(() => {
 
   routesWithSlug({ server, app });
 
+  server.get('/robots.txt', (_, res) => {
+    res.sendFile(path.join(__dirname, '../static', 'robots.txt'));
+  });
+
   server.get('*', (req, res) => {
     handle(req, res);
   });
 
   server.listen(port, err => {
-    if (err) throw err;
+    if (err) {
+      throw err;
+    }
     console.log(`> Ready on ${ROOT_URL}`);
   });
 });

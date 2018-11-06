@@ -1,5 +1,5 @@
-import * as mongoose from 'mongoose';
 import Handlebars from 'handlebars';
+import * as mongoose from 'mongoose';
 
 interface IEmailTemplateDocument extends mongoose.Document {
   name: string;
@@ -33,21 +33,28 @@ async function insertTemplates() {
       subject: 'Welcome to SaaS by Async',
       message: `{{userName}},
         <p>
-          Thanks for signing up on our <a href="https://saas-app.async-await.com" target="blank">demo app</a>!
-        <br/>
+          Thanks for signing up on our <a href="https://github.com/async-labs/saas" target="blank">SaaS boilerplate</a>!
+         <br/>
           Note that any data you save on the demo app will be deleted after 30 days.
         </p>
         <p>
-          - If you found our SaaS boilerplate useful, please remember to <a href="https://github.com/async-labs/saas" target="blank">star our repo</a>.
+          We used our SaaS boilerplate to build
+          <a href="https://async-await.com" target="blank"> Async</a>,
+           a communication and project management tool for small teams of software engineers.
         <br/>
-          - If you're learning how to build your own web app, check out our <a href="https://builderbook.org/book" target="blank">book</a>. 
-        <br/> 
-          - If you want to hire our team to build custom SaaS features, please fill out our <a href="https://goo.gl/forms/fnt6CkOOsaSUilIC3" target="blank">form</a>
+          <a href="https://app.async-await.com/signup" target="blank">Sign up</a>
+          at Async to check it out.
         </p>
         <p>
-          <a href="https://youtu.be/QiLXx-0W8Q4?t=1m7s" target="blank">We hope you don't like pain</a>.
+          If you're learning how to build your own SaaS web application, check out our
+          <a href="https://builderbook.org/book" target="blank"> book</a>.
         </p>
-      
+        <p>
+        We can build any SaaS MVP from scratch in 4-8 weeks for a fixed price of $15-20K (
+        <a href="https://goo.gl/jCU6Es" target="blank">example estimate</a>).<br/>
+        If you're interested, please fill out our
+        <a href="https://goo.gl/forms/fnt6CkOOsaSUilIC3" target="blank"> form</a>.
+        </p>
         Kelly & Timur, Team Async
       `,
     },
@@ -61,7 +68,7 @@ async function insertTemplates() {
   ];
 
   for (const t of templates) {
-    if ((await EmailTemplate.find({ name: t.name }).count()) === 0) {
+    if ((await EmailTemplate.countDocuments({ name: t.name })) === 0) {
       EmailTemplate.create(
         Object.assign({}, t, { message: t.message.replace(/\n/g, '').replace(/[ ]+/g, ' ') }),
       );

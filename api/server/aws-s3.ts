@@ -1,4 +1,5 @@
 import * as aws from 'aws-sdk';
+import logger from './logs';
 
 import Team from './models/Team';
 
@@ -8,12 +9,12 @@ async function checkPrefix(prefix, user) {
     return;
   }
 
-  const teams: any[] = await Team.find({ memberIds: user.id })
+  const teams = await Team.find({ memberIds: user.id })
     .select('slug')
-    .lean();
+    .setOptions({ lean: true });
 
   if (!teams.find(t => t.slug === prefix)) {
-    throw new Error('Wrong prefix. Create new team or select existing team.');
+    throw new Error('Wrong prefix.');
   }
 }
 
@@ -59,7 +60,7 @@ async function signRequestForUpload({ fileName, fileType, prefix, bucket, user, 
       };
 
       if (err) {
-        console.log(err);
+        logger.error(err);
         reject(err);
       } else {
         resolve(returnData);
@@ -90,7 +91,7 @@ function signRequestForLoad(path, bucket) {
       };
 
       if (err) {
-        console.log(err);
+        logger.error(err);
         reject(err);
       } else {
         resolve(returnData);

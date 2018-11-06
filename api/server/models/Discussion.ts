@@ -1,17 +1,18 @@
-import * as mongoose from 'mongoose';
 import { uniq } from 'lodash';
+import * as mongoose from 'mongoose';
 
 import { generateNumberSlug } from '../utils/slugify';
-import Topic from './Topic';
-import Team from './Team';
 import Post, { deletePostFiles } from './Post';
+import Team from './Team';
+
+mongoose.set('useFindAndModify', false);
 
 const mongoSchema = new mongoose.Schema({
   createdUserId: {
     type: String,
     required: true,
   },
-  topicId: {
+  teamId: {
     type: String,
     required: true,
   },
@@ -24,16 +25,7 @@ const mongoSchema = new mongoose.Schema({
     required: true,
   },
   memberIds: [String],
-  isPrivate: {
-    type: Boolean,
-    default: false,
-  },
   createdAt: {
-    type: Date,
-    required: true,
-    default: Date.now,
-  },
-  lastActivityDate: {
     type: Date,
     required: true,
     default: Date.now,
@@ -41,39 +33,34 @@ const mongoSchema = new mongoose.Schema({
 });
 
 mongoSchema.index({ name: 'text' });
-mongoSchema.index({ topicId: 1, slug: 1 }, { unique: true });
 
 interface IDiscussionDocument extends mongoose.Document {
   createdUserId: string;
-  topicId: string;
+  teamId: string;
   name: string;
   slug: string;
   memberIds: string[];
-  isPrivate: boolean;
   createdAt: Date;
-  lastActivityDate: Date;
 }
 
 interface IDiscussionModel extends mongoose.Model<IDiscussionDocument> {
   getList({
     userId,
-    topicId,
+    teamId,
   }: {
     userId: string;
-    topicId: string;
+    teamId: string;
   }): Promise<{ discussions: IDiscussionDocument[] }>;
 
   add({
     name,
     userId,
-    topicId,
-    isPrivate,
+    teamId,
     memberIds,
   }: {
     name: string;
     userId: string;
-    topicId: string;
-    isPrivate: boolean;
+    teamId: string;
     memberIds: string[];
   }): Promise<IDiscussionDocument>;
 
@@ -81,44 +68,34 @@ interface IDiscussionModel extends mongoose.Model<IDiscussionDocument> {
     userId,
     id,
     name,
-    isPrivate,
     memberIds,
   }: {
     userId: string;
     id: string;
     name: string;
-    isPrivate: boolean;
     memberIds: string[];
-  }): Promise<{ topicId: string }>;
+  }): Promise<{ teamId: string }>;
 
-  delete({ userId, id }: { userId: string; id: string }): Promise<{ topicId: string }>;
+  delete({ userId, id }: { userId: string; id: string }): Promise<{ teamId: string }>;
 }
 
 class DiscussionClass extends mongoose.Model {
-  static async checkPermission({ userId, topicId, memberIds = [] }) {
-    if (!userId || !topicId) {
+  public static async checkPermission({ userId, teamId, memberIds = [] }) {
+    if (!userId || !teamId) {
       throw new Error('Bad data');
     }
 
-    const topic = await Topic.findById(topicId)
-      .select('teamId')
-      .lean();
-
-    if (!topic) {
-      throw new Error('Topic not found');
-    }
-
-    const team = await Team.findById(topic.teamId)
+    const team = await Team.findById(teamId)
       .select('memberIds teamLeaderId')
-      .lean();
+      .setOptions({ lean: true });
 
     if (!team || team.memberIds.indexOf(userId) === -1) {
       throw new Error('Team not found');
     }
 
     // all members must be member of Team.
-    for (let i = 0; i < memberIds.length; i++) {
-      if (team.memberIds.indexOf(memberIds[i]) === -1) {
+    for (const id of memberIds) {
+      if (team.memberIds.indexOf(id) === -1) {
         throw new Error('Permission denied');
       }
     }
@@ -126,50 +103,47 @@ class DiscussionClass extends mongoose.Model {
     return { team };
   }
 
-  static async getList({ userId, topicId }) {
-    await this.checkPermission({ userId, topicId });
+  public static async getList({ userId, teamId }) {
+    await this.checkPermission({ userId, teamId });
 
-    const filter: any = { topicId, $or: [{ isPrivate: false }, { memberIds: userId }] };
+    const filter: any = { teamId, memberIds: userId };
 
-    const discussions: any[] = await this.find(filter)
-      .sort({ lastActivityDate: -1 })
-      .lean();
+    const discussions: any[] = await this.find(filter).setOptions({ lean: true });
 
     return { discussions };
   }
 
-  static async add({ name, userId, topicId, isPrivate = false, memberIds = [] }) {
+  public static async add({ name, userId, teamId, memberIds = [] }) {
     if (!name) {
       throw new Error('Bad data');
     }
 
-    await this.checkPermission({ userId, topicId, memberIds });
+    await this.checkPermission({ userId, teamId, memberIds });
 
-    const slug = await generateNumberSlug(this, { topicId });
+    const slug = await generateNumberSlug(this, { teamId });
 
     return this.create({
       createdUserId: userId,
-      topicId,
+      teamId,
       name,
       slug,
-      isPrivate,
-      memberIds: (isPrivate && uniq([userId, ...memberIds])) || [],
+      memberIds: uniq([userId, ...memberIds]),
       createdAt: new Date(),
     });
   }
 
-  static async edit({ userId, id, name, isPrivate = false, memberIds = [] }) {
+  public static async edit({ userId, id, name, memberIds = [] }) {
     if (!id) {
       throw new Error('Bad data');
     }
 
     const discussion = await this.findById(id)
-      .select('topicId createdUserId')
-      .lean();
+      .select('teamId createdUserId')
+      .setOptions({ lean: true });
 
     const { team } = await this.checkPermission({
       userId,
-      topicId: discussion.topicId,
+      teamId: discussion.teamId,
       memberIds,
     });
 
@@ -181,40 +155,39 @@ class DiscussionClass extends mongoose.Model {
       { _id: id },
       {
         name,
-        isPrivate,
-        memberIds: (isPrivate && uniq([userId, ...memberIds])) || [],
+        memberIds: uniq([userId, ...memberIds]),
       },
     );
 
-    return { topicId: discussion.topicId };
+    return { teamId: discussion.teamId };
   }
 
-  static async delete({ userId, id }) {
+  public static async delete({ userId, id }) {
     if (!id) {
       throw new Error('Bad data');
     }
 
     const discussion = await this.findById(id)
-      .select('topicId')
-      .lean();
+      .select('teamId')
+      .setOptions({ lean: true });
 
-    await this.checkPermission({ userId, topicId: discussion.topicId });
+    await this.checkPermission({ userId, teamId: discussion.teamId });
 
     deletePostFiles(
       await Post.find({ discussionId: id })
         .select('content')
-        .lean(),
+        .setOptions({ lean: true }),
     );
 
-    await Post.remove({ discussionId: id });
+    await Post.deleteMany({ discussionId: id });
 
-    await this.remove({ _id: id });
+    await this.deleteOne({ _id: id });
 
-    return { topicId: discussion.topicId };
+    return { teamId: discussion.teamId };
   }
 
-  static findBySlug(topicId: string, slug: string) {
-    return this.findOne({ topicId, slug }).lean();
+  public static findBySlug(teamId: string, slug: string) {
+    return this.findOne({ teamId, slug }).setOptions({ lean: true });
   }
 }
 

@@ -1,4 +1,4 @@
-## SaaS Boilerplate
+## Boilerplate App for SaaS Product
 Open source web app that saves you weeks of work when building your own SaaS product. 
 - The boilerplate app comes with many basic SaaS features (see [Features](https://github.com/async-labs/saas#features) below) so that you are able to focus on features that differentiate your product.
 - We built this boilerplate for ourselves to focus more on what matters. We've used it to quickly launch [async](https://async-await.com), [builderbook](https://builderbook.org), and other real-world SaaS web apps.
@@ -7,20 +7,25 @@ Open source web app that saves you weeks of work when building your own SaaS pro
 ## Live demo: 
 - https://saas-app.async-await.com
 
+
 ## Contents
 - [Features](#features)
 - [Run locally](#run-locally)
 - [Deploy](#deploy)
 - [Built with](#built-with)
 - [Screenshots](#screenshots)
+- [Showcase](#showcase)
+- [Hire our team](#hire-our-team)
 - [Contributing](#contributing)
-- [Other projects](#other-projects)
 - [Team](#team)
 - [License](#license)
 - [Project structure](#project-structure)
 
+
 ## Features
-- User authentication with Google, cookie, session, compression, parser, and helmet.
+- Server-side rendering for [fast initial load and SEO](https://hackernoon.com/server-side-vs-client-side-rendering-in-react-apps-443efd6f2e87).
+- User authentication with Google, cookie, and session.
+- Production-ready Express server with compression, parser, and helmet.
 - Transactional emails (`AWS SES`): welcome, team invitation, and payment.
 - Adding email addresses to newsletter lists (`Mailchimp`): new users, paying users.
 - File upload, load, and deletion (`AWS S3`) with pre-signed request for: Posts, Team Profile, and User Profile.
@@ -42,46 +47,65 @@ Open source web app that saves you weeks of work when building your own SaaS pro
   - `app` - user-facing web app with Next/Express server, responsible for rendering pages (either client-side or server-side). `app` sends requests via API methods and fetch to `api` server's Express routes.
   - `api` - server-only web app with Express server, responsible for processing requests for internal and external APIs.
   - we prepared both apps for easy deployment to `now` by Zeit.
-- (upcoming) Payments with `Stripe`: subscribing to plan, managing subscription and card information.
+- **Subscriptions with `Stripe`**:
+  - subscribe/unsubscribe Team to plan,
+  - update card information,
+  - verified Stripe webhook for failed payment for subscription.
 
 
 ## Run locally
-
 To run locally, you will need to run two apps: `api` and `app`.
 
-#### Running `api` app:
-
+#### Running `api` locally:
 - Before running, create a `.env` file inside the `api` folder with the environmental variables listed below.<br/> 
   This file _must_ have values for the `required` variables.<br/>
   To use all features and third-party integrations, also add the `optional` variables. <br/>
   
   `.env`:
   ```
-  # Used in api/server/app.ts, REQUIRED
+  # Used in api/server/app.ts
   MONGO_URL="xxxxxx"
   MONGO_URL_TEST="xxxxxx"
+  SESSION_NAME="xxxxxx"
   SESSION_SECRET="xxxxxx"
 
-  # Used in api/server/google.ts, REQUIRED
+  # Used in api/server/google.ts
   Google_clientID="xxxxxx"
   Google_clientSecret="xxxxxx"
 
-  # Used in api/server/aws-s3.ts and api/server/aws-ses.ts, OPTIONAL
+  # Used in api/server/aws-s3.ts and api/server/aws-ses.ts
   Amazon_accessKeyId="xxxxxx"
   Amazon_secretAccessKey="xxxxxx"
 
-  # Used in api/server/models/Invitation.ts and api/server/models/User.ts, OPTIONAL
+  # Used in api/server/models/Invitation.ts and api/server/models/User.ts
   EMAIL_SUPPORT_FROM_ADDRESS="xxxxxx"
 
-  # Used in api/server/mailchimp.ts, OPTIONAL
+  # Used in api/server/mailchimp.ts
   MAILCHIMP_API_KEY="xxxxxx"
-  MAILCHIMP_REGION="xxxxxx"
+  MAILCHIMP_REGION="xxxx"
   MAILCHIMP_SAAS_ALL_LIST_ID="xxxxxx"
+
+  # All env variables above this line are needed for successful user signup
+
+  # Used in api/server/stripe.ts
+  Stripe_Test_SecretKey="sk_test_xxxxxx"
+  Stripe_Live_SecretKey="sk_live_xxxxxx"
+
+  Stripe_Test_PublishableKey="pk_test_xxxxxx"
+  Stripe_Live_PublishableKey="pk_live_xxxxxx"
+
+  Stripe_Test_PlanId="plan_xxxxxx"
+  Stripe_Live_PlanId="plan_xxxxxx"
+
+  Stripe_Live_EndpointSecret="whsec_xxxxxx"
+
+  PRODUCTION_URL_APP="https://saas-app.async-await.com"
+  PRODUCTION_URL_API="https://saas-api.async-await.com"
   ```
   Important: The above environmental variables are available on the server only. You should add your `.env` file to `.gitignore` inside the `api` folder so that your secret keys are not stored on a remote Github repo.
   
   - To get `MONGO_URL` and `MONGO_URL_TEST`, we recommend a [free MongoDB at mLab](https://docs.mlab.com/).
-  - Specify your own secret key for Express session `SESSION_SECRET`: https://github.com/expressjs/session#secret
+  - Specify your own name and secret keys for Express session: [SESSION_NAME](https://github.com/expressjs/session#name) and [SESSION_SECRET](https://github.com/expressjs/session#express)
   - Get `Google_clientID` and `Google_clientSecret` by following the [official OAuth tutorial](https://developers.google.com/identity/sign-in/web/sign-in#before_you_begin). <br/>
     Important: For Google OAuth app, callback URL is: http://localhost:8000/oauth2callback <br/>
     Important: You have to enable Google+ API in your Google Cloud Platform account.
@@ -91,25 +115,40 @@ To run locally, you will need to run two apps: `api` and `app`.
   yarn dev
   ```
 
-#### Running `app` app:
-
+#### Running `app` locally:
 - Navigate to the `app` folder, run `yarn` to add all packages, then run the command below and navigate to `http://localhost:3000`:
   ```
-  GA_TRACKING_ID=UA-xxxxxxxxx-x yarn dev
+  GA_TRACKING_ID=UA-xxxxxxxxx-x StripePublishableKey=pk_test_xxxxxxxxxxxxxxx BUCKET_FOR_POSTS=xxxxxx BUCKET_FOR_TEAM_AVATARS=xxxxxx yarn dev
   ```
   - To get `GA_TRACKING_ID`, set up Google Analytics and follow [these instructions](https://support.google.com/analytics/answer/1008080?hl=en) to find your tracking ID.
+  - To get `StripePublishableKey`, go to your Stripe dashboard, click `Developers`, then click `API keys`.
   
-  You are welcome to remove Google Analytics integration or pass universally available variables inside the code. If you do so, your command to run `app` will be:
+As you can see, we don't have `PRODUCTION_URL_APP` and `PRODUCTION_URL_API` env variables in the above command. In dev environment, corresponding values are`http://localhost:3000` and `http://localhost:8000`.
+
+For successful file uploading, make sure your buckets have proper CORS configuration. Go to your AWS account, find your bucket, go to `Permissions > CORS configuration`, add:
   ```
-  yarn dev
+  <?xml version="1.0" encoding="UTF-8"?>
+  <CORSConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <CORSRule>
+      <AllowedOrigin>http://localhost:3000</AllowedOrigin>
+      <AllowedOrigin>https://saas-app.async-await.com</AllowedOrigin>
+      <AllowedMethod>POST</AllowedMethod>
+      <AllowedMethod>GET</AllowedMethod>
+      <AllowedMethod>PUT</AllowedMethod>
+      <AllowedMethod>DELETE</AllowedMethod>
+      <AllowedMethod>HEAD</AllowedMethod>
+      <ExposeHeader>ETag</ExposeHeader>
+      <ExposeHeader>x-amz-meta-custom-header</ExposeHeader>
+      <AllowedHeader>*</AllowedHeader>
+  </CORSRule>
+  </CORSConfiguration>
   ```
 
-Internal and external API requests will be sent from `http://localhost:3000` to `http://localhost:8000`.
+Make sure to update allowed origin with your actual `PRODUCTION_URL_APP`. In our case, it's `https://saas-app.async-await.com`.
 
 
 ## Deploy
-
-To run the two apps (`api` and `app`) at the same time, follow the instructions below.
+To deploy the two apps (`api` and `app`), follow the instructions below.
 
 - Inside the `api` folder, create a `now.json` file with the following content:
   ```
@@ -118,7 +157,7 @@ To run the two apps (`api` and `app`) at the same time, follow the instructions 
         "NODE_ENV": "production"
     },
     "dotenv": true,
-    "alias": "saas-api.async-await.com",
+    "alias": "your-api-url.com",
     "scale": {
       "sfo1": {
         "min": 1,
@@ -135,10 +174,14 @@ To run the two apps (`api` and `app`) at the same time, follow the instructions 
     "env": {
         "NODE_ENV": "production",
         "GA_TRACKING_ID": "UA-xxxxxxxxx-x",
-        "PRODUCTION_URL_APP": "https://saas-app.async-await.com",
-        "PRODUCTION_URL_API": "https://saas-api.async-await.com"
+        "StripePublishableKey": "pk_live_xxxxxx",
+        "PRODUCTION_URL_APP": "https://your-app-url.com",
+        "PRODUCTION_URL_API": "https://your-api-url.com",
+        "BUCKET_FOR_POSTS": "xxxxxx",
+        "BUCKET_FOR_TEAM_AVATARS": "xxxxxx"
+        
     },
-    "alias": "saas-app.async-await.com",
+    "alias": "your-app-url.com",
     "scale": {
       "sfo1": {
         "min": 1,
@@ -149,7 +192,7 @@ To run the two apps (`api` and `app`) at the same time, follow the instructions 
   ```
   Remember to edit `now.json` so it reflects your `GA_TRACKING_ID` and domains.
 
-- Follow [these simple steps](https://github.com/builderbook/builderbook#deploy) to deploy each app to `Now` by Zeit.
+- Follow [these simple steps](https://github.com/builderbook/builderbook#deploy) to deploy each app to `Now` cloud by Zeit.
 
 Learn how to configure and scale your deployment: [Now docs](https://zeit.co/docs/features/configuration).
 
@@ -157,7 +200,6 @@ You are welcome to deploy to any cloud provider. We plan to publish a tutorial f
 
 
 ## Built with
-
 - [React](https://github.com/facebook/react)
 - [Material-UI](https://github.com/mui-org/material-ui)
 - [Next](https://github.com/zeit/next.js)
@@ -173,32 +215,53 @@ To customize styles, check [this guide](https://github.com/builderbook/builderbo
 
 
 ## Screenshots
-Dashboard showing Topic > Discussion > Post:
-![saas-dashboard](https://user-images.githubusercontent.com/26158226/41631311-c5e23cca-73e8-11e8-900a-04ff5bf386e7.png)
+Dashboard showing Discussion > Posts:
+![1_discussion](https://user-images.githubusercontent.com/26158226/46056102-e5d7fc00-c103-11e8-9690-29ed4d01253d.png)
 
 Adding a Post, Markdown vs. HTML view:
-![saas-addpost-markdown](https://user-images.githubusercontent.com/26158226/41631310-c5c5f3a8-73e8-11e8-93b3-a3400e7d1a3b.png)
-![saas-addpost-html](https://user-images.githubusercontent.com/26158226/41631309-c5a4e1e0-73e8-11e8-937b-79e9df6c2e60.png)
+![2_markdown](https://user-images.githubusercontent.com/26158226/46056242-93e3a600-c104-11e8-978d-3452dba56e2a.png)
+![3_html](https://user-images.githubusercontent.com/26158226/46056104-e5d7fc00-c103-11e8-8534-6d9204d0a959.png)
 
 Settings for Team Members:
-![saas-teammembers](https://user-images.githubusercontent.com/26158226/41631312-c5fe775a-73e8-11e8-87f8-a66b5d59eba9.png)
+![4_teammember](https://user-images.githubusercontent.com/26158226/46056105-e5d7fc00-c103-11e8-969b-1ed3f8d2924d.png)
+
+Team Billing:
+![5_teambilling](https://user-images.githubusercontent.com/26158226/46056106-e5d7fc00-c103-11e8-9746-7356a4e76dc8.png)
+
+Settings for Team Profile:
+![6_teamprofile](https://user-images.githubusercontent.com/26158226/46056108-e8d2ec80-c103-11e8-8cb7-8d68bec4ed85.png)
 
 Settings for Personal Profile:
-![saas-yourprofile](https://user-images.githubusercontent.com/26158226/41631313-c61e0df4-73e8-11e8-808d-b6d1f8042817.png)
+![7_personalprofile](https://user-images.githubusercontent.com/26158226/46056109-e96b8300-c103-11e8-958f-3ea66eafb028.png)
 
+Add/Update card with Stripe:
+![8_stripe](https://user-images.githubusercontent.com/26158226/46056110-e96b8300-c103-11e8-89d8-b4de80a258db.png)
+
+Menu dropdown to switch between Teams:
+![9_switchteam](https://user-images.githubusercontent.com/26158226/46056111-ea9cb000-c103-11e8-8def-8a3c23988088.png)
+
+
+## Showcase
+Check out projects built with the code in this open source app. Feel free to add your own project by creating a pull request.
+- [Async](https://async-await.com/): asynchronous communication and project management tool for small teams of software engineers.
+- [Retaino](https://retaino.com) by [Earl Lee](https://github.com/earllee) : Save, annotate, review, and share great web content. Receive smart email digests to retain key information.
+- [Builder Book](https://github.com/builderbook/builderbook): Open source web app to publish documentation or books. Built with React, Material-UI, Next, Express, Mongoose, MongoDB.
+- [Harbor](https://github.com/builderbook/harbor): Open source web app that allows anyone with a Gmail account to automatically charge for advice sent via email.
+
+
+
+## Hire our team
+We can build any functional SaaS MVP from scratch in 4-6 weeks for a fixed price of $10-20K ([example estimate](https://goo.gl/fw7YQU)).
+If you're interested, please fill out our [form](https://goo.gl/forms/4kk6mvowOjkQY21y2).
+
+If you are a small team who works best in a calm environment and builds a SaaS product that solves a real problem - we want to hear from you.
+
+[Async](https://async-await.com) is the largest project in our portfolio to this date. [Sign up](https://app.async-await.com/signup) at Async to check it out.
 
 ## Contributing
-If you'd like to contribute, check our [todo list](https://github.com/async-labs/saas/issues/1) for features you can discuss and add.
+If you'd like to contribute, check our [todo list](https://github.com/async-labs/saas/issues/1) for features you can discuss and add. To report a bug, create an [issue](https://github.com/async-labs/saas/issues/new).
 
-To report a bug, create an [issue](https://github.com/async-labs/saas/issues/new).
-
-
-## Other projects
-Want to support this project?
-
-Sign up at [async](https://async-await.com) and/or buy our [book](https://builderbook.org/book).
-
-If you're interested in hiring our team to build custom SaaS features, fill out our [form](https://goo.gl/forms/4kk6mvowOjkQY21y2).
+Want to support this project? Sign up at [async](https://async-await.com) and/or buy our [book](https://builderbook.org/book).
 
 
 ## Team
@@ -217,7 +280,6 @@ All code in this repository is provided under the [MIT License](https://github.c
 ```
 ├── server
 │   ├── api
-│   │   ├── admin.ts
 │   │   ├── index.ts
 │   │   ├── public.ts
 │   │   ├── team-leader.ts
@@ -229,7 +291,6 @@ All code in this repository is provided under the [MIT License](https://github.c
 │   │   ├── Post.ts
 │   │   ├── Purchase.ts
 │   │   ├── Team.ts
-│   │   ├── Topic.ts
 │   │   ├── User.ts
 │   ├── utils
 │   │   ├── slugify.ts
@@ -259,6 +320,7 @@ All code in this repository is provided under the [MIT License](https://github.c
 │   │   ├── AutoComplete.tsx
 │   │   ├── AvatarwithMenu.tsx
 │   │   ├── Confirm.tsx
+│   │   ├── Loading.tsx
 │   │   ├── LoginButton.tsx
 │   │   ├── MenuWithLinks.tsx
 │   │   ├── MenuWithMenuItems.tsx
@@ -268,6 +330,7 @@ All code in this repository is provided under the [MIT License](https://github.c
 │   │   ├── CreateDiscussionForm.tsx
 │   │   ├── DiscussionActionMenu.tsx
 │   │   ├── DiscussionList.tsx
+│   │   ├── DiscussionListItem.tsx
 │   │   ├── EditDiscussionForm.tsx
 │   ├── posts
 │   │   ├── PostContent.tsx
@@ -276,14 +339,10 @@ All code in this repository is provided under the [MIT License](https://github.c
 │   │   ├── PostForm.tsx
 │   ├── teams
 │   │   ├── InviteMember.tsx
-│   ├── topics
-│   │   ├── CreateTopicForm.tsx
-│   │   ├── EditTopicForm.tsx
-│   │   ├── TopicActionMenu.tsx
-│   │   ├── TopicList.tsx
+│   ├── users
+│   │   ├── MemberChooser.tsx
 ├── lib
 │   ├── api
-│   │   ├── admin.ts
 │   │   ├── getRootUrl.ts
 │   │   ├── makeQueryString.ts
 │   │   ├── public.ts
@@ -296,29 +355,26 @@ All code in this repository is provided under the [MIT License](https://github.c
 │   │   ├── invitation.ts
 │   │   ├── post.ts
 │   │   ├── team.ts
-│   │   ├── topic.ts
 │   │   ├── user.ts
 │   ├── confirm.ts
 │   ├── context.ts
 │   ├── env.js
 │   ├── gtag.js
 │   ├── notifier.ts
+│   ├── resizeImage.ts
 │   ├── sharedStyles.ts
 │   ├── withAuth.tsx
 │   ├── withLayout.tsx
 │   ├── withStore.tsx
 ├── pages
-│   ├── discussions
-│   │   ├── detail.tsx
 │   ├── settings
-│   │   ├── create-team.tsx
 │   │   ├── team-billing.tsx
 │   │   ├── team-members.tsx
 │   │   ├── team-profile.tsx
 │   │   ├── your-profile.tsx
-│   ├── topics
-│   │   ├── detail.tsx
 │   ├── _document.tsx
+│   ├── create-team.tsx
+│   ├── discussion.tsx
 │   ├── invitation.tsx
 │   ├── login.tsx
 ├── server
@@ -326,6 +382,7 @@ All code in this repository is provided under the [MIT License](https://github.c
 │   ├── routesWithSlug.ts
 ├── static
 │   ├── robots.txt
+├── .babelrc
 ├── .eslintrc.js
 ├── .gitignore
 ├── .npmignore
@@ -334,5 +391,6 @@ All code in this repository is provided under the [MIT License](https://github.c
 ├── package.json
 ├── tsconfig.json
 ├── tsconfig.server.json
+├── .tslint.json
 ├── yarn.lock
 ```

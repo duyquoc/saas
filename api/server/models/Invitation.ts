@@ -1,14 +1,16 @@
 import * as mongoose from 'mongoose';
 
+import sendEmail from '../aws-ses';
+import logger from '../logs';
+import getEmailTemplate from './EmailTemplate';
 import Team from './Team';
 import User, { IUserDocument } from './User';
-import getEmailTemplate from './EmailTemplate';
-import logger from '../logs';
-import sendEmail from '../aws-ses';
 
 const dev = process.env.NODE_ENV !== 'production';
-const { PRODUCTION_URL_API } = process.env;
-const ROOT_URL = dev ? `http://localhost:3000` : PRODUCTION_URL_API;
+const { PRODUCTION_URL_APP } = process.env;
+const ROOT_URL = dev ? 'http://localhost:3000' : PRODUCTION_URL_APP;
+
+mongoose.set('useFindAndModify', false);
 
 const mongoSchema = new mongoose.Schema({
   teamId: {
@@ -71,25 +73,25 @@ function generateToken() {
 }
 
 class InvitationClass extends mongoose.Model {
-  static async add({ userId, teamId, email }) {
+  public static async add({ userId, teamId, email }) {
     if (!teamId || !email) {
       throw new Error('Bad data');
     }
 
-    const team = await Team.findById(teamId).lean();
+    const team = await Team.findById(teamId).setOptions({ lean: true });
     if (!team || team.teamLeaderId !== userId) {
       throw new Error('Team does not exist or you have no permission');
     }
 
     const registeredUser = await User.findOne({ email })
       .select('defaultTeamSlug')
-      .lean();
+      .setOptions({ lean: true });
 
     if (registeredUser) {
       if (team.memberIds.includes(registeredUser._id.toString())) {
         throw new Error('This user is already Team Member.');
       } else {
-        await Team.update({ _id: team._id }, { $addToSet: { memberIds: registeredUser._id } });
+        await Team.updateOne({ _id: team._id }, { $addToSet: { memberIds: registeredUser._id } });
 
         if (registeredUser._id !== team.teamLeaderId && !registeredUser.defaultTeamSlug) {
           await User.findByIdAndUpdate(registeredUser._id, {
@@ -102,13 +104,13 @@ class InvitationClass extends mongoose.Model {
     let token;
     const invitation = await this.findOne({ teamId, email })
       .select('token')
-      .lean();
+      .setOptions({ lean: true });
 
     if (invitation) {
       token = invitation.token;
     } else {
       token = generateToken();
-      while ((await this.find({ token }).count()) > 0) {
+      while ((await this.countDocuments({ token })) > 0) {
         token = generateToken();
       }
 
@@ -124,7 +126,7 @@ class InvitationClass extends mongoose.Model {
       invitationURL: `${ROOT_URL}/invitation?token=${token}`,
     });
 
-    sendEmail({
+    await sendEmail({
       from: `Kelly from async-await.com <${process.env.EMAIL_SUPPORT_FROM_ADDRESS}>`,
       to: [email],
       subject: template.subject,
@@ -132,28 +134,30 @@ class InvitationClass extends mongoose.Model {
     }).catch(err => {
       logger.error('Email sending error:', err);
     });
+
+    return await this.findOne({ teamId, email }).setOptions({ lean: true });
   }
 
-  static async getTeamInvitedUsers({ userId, teamId }) {
+  public static async getTeamInvitedUsers({ userId, teamId }) {
     const team = await Team.findOne({ _id: teamId })
       .select('teamLeaderId')
-      .lean();
+      .setOptions({ lean: true });
 
     if (userId !== team.teamLeaderId) {
       throw new Error('You have no permission.');
     }
 
-    return this.find({ teamId: teamId })
+    return this.find({ teamId })
       .select('email')
-      .lean();
+      .setOptions({ lean: true });
   }
 
-  static async getTeamByToken({ token }) {
+  public static async getTeamByToken({ token }) {
     if (!token) {
       throw new Error('Bad data');
     }
 
-    const invitation = await this.findOne({ token }).lean();
+    const invitation = await this.findOne({ token }).setOptions({ lean: true });
 
     if (!invitation) {
       throw new Error('Invitation not found');
@@ -161,7 +165,7 @@ class InvitationClass extends mongoose.Model {
 
     const team = await Team.findById(invitation.teamId)
       .select('name slug avatarUrl memberIds')
-      .lean();
+      .setOptions({ lean: true });
 
     if (!team) {
       throw new Error('Team does not exist');
@@ -170,12 +174,12 @@ class InvitationClass extends mongoose.Model {
     return team;
   }
 
-  static async removeIfMemberAdded({ token, userId }) {
+  public static async removeIfMemberAdded({ token, userId }) {
     if (!token) {
       throw new Error('Bad data');
     }
 
-    const invitation = await this.findOne({ token }).lean();
+    const invitation = await this.findOne({ token }).setOptions({ lean: true });
 
     if (!invitation) {
       throw new Error('Invitation not found');
@@ -183,32 +187,32 @@ class InvitationClass extends mongoose.Model {
 
     const team = await Team.findById(invitation.teamId)
       .select('name slug avatarUrl memberIds')
-      .lean();
+      .setOptions({ lean: true });
 
     if (team && team.memberIds.includes(userId)) {
-      this.remove({ token }).exec();
+      this.deleteOne({ token }).exec();
     }
   }
 
-  static async addUserToTeam({ token, user }) {
+  public static async addUserToTeam({ token, user }) {
     if (!token || !user) {
       throw new Error('Bad data');
     }
 
-    const invitation = await this.findOne({ token }).lean();
+    const invitation = await this.findOne({ token }).setOptions({ lean: true });
 
     if (!invitation || invitation.email !== user.email) {
       throw new Error('Invitation not found');
     }
 
-    await this.remove({ token });
+    await this.deleteOne({ token });
 
     const team = await Team.findById(invitation.teamId)
       .select('memberIds slug teamLeaderId')
-      .lean();
+      .setOptions({ lean: true });
 
     if (team && !team.memberIds.includes(user._id)) {
-      await Team.update({ _id: team._id }, { $addToSet: { memberIds: user._id } });
+      await Team.updateOne({ _id: team._id }, { $addToSet: { memberIds: user._id } });
 
       if (user._id !== team.teamLeaderId && !user.defaultTeamSlug) {
         await User.findByIdAndUpdate(user._id, { $set: { defaultTeamSlug: team.slug } });

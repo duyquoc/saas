@@ -1,28 +1,23 @@
 import React from 'react';
-import { Provider, inject } from 'mobx-react';
 
-import { initStore, Store, getStore } from './store';
-import { getInitialData } from './api/team-member';
 import { getUser } from './api/public';
+import { getInitialData } from './api/team-member';
+import { getStore, initStore, Store } from './store';
 
-export default function withStore(BaseComponent) {
-  BaseComponent = inject('store')(BaseComponent);
-
-  class App extends React.Component {
-    store: Store;
-
-    static async getInitialProps(ctx) {
-      const props: any = {};
-
-      // if store initialized already do not load data again
-      if (getStore()) {
-        if (BaseComponent.getInitialProps) {
-          Object.assign(props, (await BaseComponent.getInitialProps(ctx)) || {});
-        }
-
-        return props;
+export default function withStore(App) {
+  class AppWithMobx extends React.Component {
+    public static async getInitialProps(appContext) {
+      let appProps = {};
+      if (typeof App.getInitialProps === 'function') {
+        appProps = await App.getInitialProps.call(App, appContext);
       }
 
+      // if store initialized already, do not load data again
+      if (getStore()) {
+        return appProps;
+      }
+
+      const { ctx } = appContext;
       let user = null;
       try {
         user = ctx.req ? ctx.req.user : await getUser();
@@ -30,30 +25,30 @@ export default function withStore(BaseComponent) {
         console.log(error);
       }
 
-      if (BaseComponent.getInitialProps) {
-        Object.assign(props, (await BaseComponent.getInitialProps(ctx)) || {});
-      }
-
-      const { teamSlug, topicSlug, discussionSlug } = props;
       let initialData = {};
+      const {
+        teamSlug,
+        discussionSlug,
+      } = ctx.query;
 
       if (user) {
         try {
           initialData = await getInitialData({
             request: ctx.req,
-            data: { teamSlug, topicSlug, discussionSlug },
+            data: { teamSlug, discussionSlug },
           });
         } catch (error) {
-          console.log(error);
+          console.error(error);
         }
       }
 
-      Object.assign(props, {
-        initialState: { user, teamSlug, ...initialData },
-      });
-
-      return props;
+      return {
+        ...appProps,
+        initialState: { user, teamSlug, currentUrl: ctx.asPath, ...initialData },
+      };
     }
+
+    private store: Store;
 
     constructor(props) {
       super(props);
@@ -61,14 +56,10 @@ export default function withStore(BaseComponent) {
       this.store = initStore(props.initialState);
     }
 
-    render() {
-      return (
-        <Provider store={this.store}>
-          <BaseComponent {...this.props} />
-        </Provider>
-      );
+    public render() {
+      return <App {...this.props} mobxStore={this.store} />;
     }
   }
 
-  return App;
+  return AppWithMobx;
 }

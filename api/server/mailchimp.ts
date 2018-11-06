@@ -1,6 +1,7 @@
+import * as dotenv from 'dotenv';
 import * as request from 'request';
 
-require('dotenv').config();
+dotenv.config();
 
 const LIST_IDS = {
   signups: process.env.MAILCHIMP_SAAS_ALL_LIST_ID,
@@ -8,6 +9,7 @@ const LIST_IDS = {
 
 function callAPI({ path, method, data }) {
   const ROOT_URI = `https://${process.env.MAILCHIMP_REGION}.api.mailchimp.com/3.0`;
+  // For us, MAILCHIMP_REGION has value of 'us17'.
 
   const API_KEY = process.env.MAILCHIMP_API_KEY;
 
@@ -23,7 +25,7 @@ function callAPI({ path, method, data }) {
         json: true,
         body: data,
       },
-      (err, response, body) => {
+      (err, body) => {
         if (err) {
           reject(err);
         } else {

@@ -1,24 +1,22 @@
-import React from 'react';
+import Avatar from '@material-ui/core/Avatar';
 import Menu from '@material-ui/core/Menu';
 import MenuItem from '@material-ui/core/MenuItem';
-import Avatar from '@material-ui/core/Avatar';
-import ActiveLink from './ActiveLink';
+import { withRouter } from 'next/router';
+import Router from 'next/router';
+import React from 'react';
 
-class MenuWithLinks extends React.PureComponent<{ src?: string; alt?: string; options: any[] }> {
-  state = {
+class MenuWithLinks extends React.PureComponent<{
+  src?: string;
+  alt?: string;
+  options: any[];
+  router: any;
+}> {
+  public state = {
     anchorEl: null,
   };
 
-  handleClick = event => {
-    this.setState({ anchorEl: event.currentTarget });
-  };
-
-  handleClose = () => {
-    this.setState({ anchorEl: null });
-  };
-
-  render() {
-    const { options, src, alt, children } = this.props;
+  public render() {
+    const { options, src, alt, children, router } = this.props;
     const { anchorEl } = this.state;
 
     return (
@@ -47,20 +45,36 @@ class MenuWithLinks extends React.PureComponent<{ src?: string; alt?: string; op
           {options.map(
             (option, i) =>
               option.separator ? (
-                <hr
-                  style={{ width: '85%', margin: '20px auto 10px auto' }}
-                  key={`separated-${i}`}
-                />
+                <hr style={{ width: '85%', margin: '10px auto' }} key={`separated-${i}`} />
               ) : (
-                <MenuItem onClick={this.handleClose} key={option.href}>
-                  <ActiveLink
-                    teamLogo={option.avatarUrl}
-                    linkText={option.text}
-                    href={option.href}
-                    as={option.as || option.href}
-                    simple={option.simple}
-                    highlighterSlug={option.highlighterSlug}
-                  />
+                <MenuItem
+                  onClick={() => {
+                    Router.push(option.href, option.as || option.href);
+                    this.handleClose();
+                  }}
+                  key={option.href}
+                  style={{
+                    fontWeight: router.asPath.includes(option.highlighterSlug) ? 600 : 300,
+                    fontSize: '14px',
+                  }}
+                >
+                  {option.avatarUrl ? (
+                    <Avatar
+                      src={`${option.avatarUrl ||
+                        'https://storage.googleapis.com/async-await/async-logo-40.svg'}`}
+                      alt="Team logo"
+                      style={{
+                        margin: '0px 10px 0px 0px',
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        height: '32px',
+                        width: '32px',
+                        verticalAlign: 'middle',
+                      }}
+                    />
+                  ) : null}
+
+                  {option.text}
                 </MenuItem>
               ),
           )}
@@ -68,6 +82,14 @@ class MenuWithLinks extends React.PureComponent<{ src?: string; alt?: string; op
       </div>
     );
   }
+
+  public handleClick = event => {
+    this.setState({ anchorEl: event.currentTarget });
+  };
+
+  public handleClose = () => {
+    this.setState({ anchorEl: null });
+  };
 }
 
-export default MenuWithLinks;
+export default withRouter(MenuWithLinks);

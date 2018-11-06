@@ -1,17 +1,61 @@
-import React from 'react';
-import JssProvider from 'react-jss/lib/JssProvider';
-import Document, { Head, Main, NextScript } from 'next/document';
 import htmlescape from 'htmlescape';
+import Document, { Head, Main, NextScript } from 'next/document';
+import React from 'react';
+import flush from 'styled-jsx/server';
 
-import getContext from '../lib/context';
+const {
+  GA_TRACKING_ID,
+  PRODUCTION_URL_APP,
+  PRODUCTION_URL_API,
+  StripePublishableKey,
+  BUCKET_FOR_POSTS,
+  BUCKET_FOR_TEAM_AVATARS,
+} = process.env;
 
-const { GA_TRACKING_ID, PRODUCTION_URL_APP, PRODUCTION_URL_API, StripePublishableKey } = process.env;
-const env = { GA_TRACKING_ID, PRODUCTION_URL_APP, PRODUCTION_URL_API, StripePublishableKey };
+const env = {
+  GA_TRACKING_ID,
+  PRODUCTION_URL_APP,
+  PRODUCTION_URL_API,
+  StripePublishableKey,
+  BUCKET_FOR_POSTS,
+  BUCKET_FOR_TEAM_AVATARS,
+};
 
 class MyDocument extends Document {
-  render() {
+  public static getInitialProps = ctx => {
+    // Render app and page and get the context of the page with collected side effects.
+    let pageContext;
+    const page = ctx.renderPage(Component => {
+      const WrappedComponent = props => {
+        pageContext = props.pageContext;
+        return <Component {...props} />;
+      };
+
+      return WrappedComponent;
+    });
+
+    return {
+      ...page,
+      pageContext,
+      // Styles fragment is rendered after the app and page rendering finish.
+      styles: (
+        <React.Fragment>
+          <style
+            id="jss-server-side"
+            // eslint-disable-next-line react/no-danger
+            dangerouslySetInnerHTML={{
+              __html: pageContext && pageContext.sheetsRegistry.toString(),
+            }}
+          />
+          {flush() || null}
+        </React.Fragment>
+      ),
+    };
+  };
+
+  public render() {
     return (
-      <html lang="en" style={{ height: '100%', overflowY: 'scroll', overflowX: 'hidden' }}>
+      <html lang="en" style={{ overflow: 'overlay', overflowX: 'hidden' }}>
         <Head>
           <meta charSet="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -24,7 +68,7 @@ class MyDocument extends Document {
           />
           <link
             rel="stylesheet"
-            href="https://fonts.googleapis.com/css?family=Muli:300,400:latin"
+            href="https://fonts.googleapis.com/css?family=Roboto:300,400:latin"
           />
           <link rel="stylesheet" href="https://fonts.googleapis.com/icon?family=Material+Icons" />
           <link
@@ -36,24 +80,23 @@ class MyDocument extends Document {
           <style>
             {`
               #__next {
-                height: 100% !important;
+                width: 100%;
+                height: 100%;
               }
-              a, a:focus {
+              a,
+              a:focus {
                 font-weight: 600;
                 color: #fff;
                 text-decoration: none;
-                outline: none
+                outline: none;
               }
-              a:hover, button:hover {
+              a:hover,
+              button:hover {
                 opacity: 0.75;
-                cursor: pointer
-              }
-              ul {
-                list-style: none;
-                padding: 0px;
+                cursor: pointer;
               }
               hr {
-                border: 0.5px #aaa solid;
+                border: 0.5px #707070 solid;
               }
               blockquote {
                 padding: 0 0.5em;
@@ -70,20 +113,29 @@ class MyDocument extends Document {
                 border: 1px solid #ddd;
                 font-size: 14px;
               }
-              code {
-                font-size: 14px;
+              pre code {
+                font-size: 13px;
                 background: #303030;
                 color: #fff;
+                padding: 0px;
+              }
+              code {
+                font-size: 13px;
+                background: #303030;
+                color: #fff;
+                padding: 3px 5px;
               }
               mark {
                 background-color: #ffff0060;
               }
-              .image-placeholder {
+
+              .lazy-load-image-body .image-placeholder {
                 background-color: #ddd;
                 display: flex;
                 margin-bottom: 10px;
+                width: 100%;
               }
-              .image-placeholder-text {
+              .lazy-load-image-body .image-placeholder-text {
                 color: #111;
                 font-weight: 400;
                 align-self: center;
@@ -113,15 +165,12 @@ class MyDocument extends Document {
         </Head>
         <body
           style={{
-            font: '16px Muli',
+            font: '15px Roboto',
             color: '#fff',
-            margin: '0px auto',
             fontWeight: 300,
             lineHeight: '1.5em',
-            height: '100%',
-            right: '-15px',
-            left: 0,
-            position: 'absolute',
+            padding: '0px 0px 0px 0px !important',
+            letterSpacing: '0.01em',
           }}
         >
           <Main />
@@ -133,29 +182,5 @@ class MyDocument extends Document {
     );
   }
 }
-
-MyDocument.getInitialProps = ({ renderPage }) => {
-  const pageContext = getContext();
-  const page = renderPage(Component => props => (
-    <JssProvider
-      registry={pageContext.sheetsRegistry}
-      generateClassName={pageContext.generateClassName}
-    >
-      <Component pageContext={pageContext} {...props} />
-    </JssProvider>
-  ));
-
-  return {
-    ...page,
-    pageContext,
-    styles: (
-      <style
-        id="jss-server-side"
-        // eslint-disable-next-line
-        dangerouslySetInnerHTML={{ __html: pageContext.sheetsRegistry.toString() }}
-      />
-    ),
-  };
-};
 
 export default MyDocument;

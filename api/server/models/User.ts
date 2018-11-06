@@ -1,13 +1,23 @@
 import * as _ from 'lodash';
 import * as mongoose from 'mongoose';
 
-import generateSlug from '../utils/slugify';
-import { subscribe } from '../mailchimp';
 import sendEmail from '../aws-ses';
 import logger from '../logs';
+import { subscribe } from '../mailchimp';
+import { generateSlug } from '../utils/slugify';
 import getEmailTemplate from './EmailTemplate';
-import Team from './Team';
 import Invitation from './Invitation';
+import Team from './Team';
+
+import {
+  createCustomer,
+  createNewCard,
+  getListOfInvoices,
+  retrieveCard,
+  updateCustomer,
+} from '../stripe';
+
+mongoose.set('useFindAndModify', false);
 
 const mongoSchema = new mongoose.Schema({
   googleId: {
@@ -39,8 +49,6 @@ const mongoSchema = new mongoose.Schema({
     default: '',
   },
 
-  projectIds: [String],
-
   isAdmin: {
     type: Boolean,
     default: false,
@@ -48,11 +56,48 @@ const mongoSchema = new mongoose.Schema({
   displayName: String,
   avatarUrl: String,
 
-  isGithubConnected: {
+  stripeCustomer: {
+    id: String,
+    object: String,
+    created: Number,
+    currency: String,
+    default_source: String,
+    description: String,
+  },
+  stripeCard: {
+    id: String,
+    object: String,
+    brand: String,
+    funding: String,
+    country: String,
+    last4: String,
+    exp_month: Number,
+    exp_year: Number,
+  },
+  hasCardInformation: {
     type: Boolean,
     default: false,
   },
-  githubAccessToken: String,
+  stripeListOfInvoices: {
+    object: String,
+    has_more: Boolean,
+    data: [
+      {
+        id: String,
+        object: String,
+        amount_paid: Number,
+        date: Number,
+        customer: String,
+        subscription: String,
+        hosted_invoice_url: String,
+        billing: String,
+        paid: Boolean,
+        number: String,
+        teamId: String,
+        teamName: String,
+      },
+    ],
+  },
 });
 
 export interface IUserDocument extends mongoose.Document {
@@ -68,8 +113,44 @@ export interface IUserDocument extends mongoose.Document {
 
   defaultTeamSlug: string;
 
-  isGithubConnected: boolean;
-  githubAccessToken: string;
+  hasCardInformation: boolean;
+  stripeCustomer: {
+    id: string;
+    default_source: string;
+    created: number;
+    object: string;
+    description: string;
+  };
+  stripeCard: {
+    id: string;
+    object: string;
+    brand: string;
+    country: string;
+    last4: string;
+    exp_month: number;
+    exp_year: number;
+    funding: string;
+  };
+  stripeListOfInvoices: {
+    object: string;
+    has_more: boolean;
+    data: [
+      {
+        id: string;
+        object: string;
+        amount_paid: number;
+        date: number;
+        customer: string;
+        subscription: string;
+        hosted_invoice_url: string;
+        billing: string;
+        paid: boolean;
+        number: string;
+        teamId: string;
+        teamName: string;
+      }
+    ]
+  };
 }
 
 interface IUserModel extends mongoose.Model<IUserDocument> {
@@ -80,9 +161,9 @@ interface IUserModel extends mongoose.Model<IUserDocument> {
     name,
     avatarUrl,
   }: {
-    userId: string;
-    name: string;
-    avatarUrl: string;
+  userId: string;
+  name: string;
+  avatarUrl: string;
   }): Promise<IUserDocument[]>;
 
   getTeamMembers({ userId, teamId }: { userId: string; teamId: string }): Promise<IUserDocument[]>;
@@ -94,12 +175,29 @@ interface IUserModel extends mongoose.Model<IUserDocument> {
     displayName,
     avatarUrl,
   }: {
-    googleId: string;
-    email: string;
-    displayName: string;
-    avatarUrl: string;
-    googleToken: { refreshToken?: string; accessToken?: string };
+  googleId: string;
+  email: string;
+  displayName: string;
+  avatarUrl: string;
+  googleToken: { refreshToken?: string; accessToken?: string };
   }): Promise<IUserDocument>;
+
+  createCustomer({
+    userId,
+    stripeToken,
+  }: {
+  userId: string;
+  stripeToken: object;
+  }): Promise<IUserDocument>;
+
+  createNewCardUpdateCustomer({
+    userId,
+    stripeToken,
+  }: {
+  userId: string;
+  stripeToken: object;
+  }): Promise<IUserDocument>;
+  getListOfInvoicesForCustomer({ userId }: { userId: string }): Promise<IUserDocument>;
 }
 
 // mongoSchema.pre('save', function(next) {
@@ -108,37 +206,7 @@ interface IUserModel extends mongoose.Model<IUserDocument> {
 // });
 
 class UserClass extends mongoose.Model {
-  static publicFields(): string[] {
-    return [
-      '_id',
-      'id',
-      'displayName',
-      'email',
-      'avatarUrl',
-      'slug',
-      'isAdmin',
-      'isGithubConnected',
-      'defaultTeamSlug',
-    ];
-  }
-
-  static async checkPermissionAndGetTeam({ userId, teamId }) {
-    if (!userId || !teamId) {
-      throw new Error('Bad data');
-    }
-
-    const team = await Team.findById(teamId)
-      .select('memberIds')
-      .lean();
-
-    if (!team || team.memberIds.indexOf(userId) === -1) {
-      throw new Error('Team not found');
-    }
-
-    return team;
-  }
-
-  static async updateProfile({ userId, name, avatarUrl }) {
+  public static async updateProfile({ userId, name, avatarUrl }) {
     // TODO: If avatarUrl is changed and old is uploaded to our S3, delete it from S3
 
     const user = await this.findById(userId, 'slug displayName');
@@ -151,22 +219,93 @@ class UserClass extends mongoose.Model {
     }
 
     return this.findByIdAndUpdate(userId, { $set: modifier }, { new: true, runValidators: true })
-      .select('name avatarUrl')
-      .lean();
+      .select('displayName avatarUrl slug')
+      .setOptions({ lean: true });
   }
 
-  static async getTeamMembers({ userId, teamId }) {
+  public static async createCustomer({ userId, stripeToken }) {
+    const user = await this.findById(userId, 'email');
+
+    const customerObj = await createCustomer({
+      token: stripeToken.id,
+      teamLeaderEmail: user.email,
+      teamLeaderId: userId,
+    });
+
+    logger.debug(customerObj.default_source.toString());
+
+    const cardObj = await retrieveCard({
+      customerId: customerObj.id,
+      cardId: customerObj.default_source.toString(),
+    });
+
+    const modifier = { stripeCustomer: customerObj, stripeCard: cardObj, hasCardInformation: true };
+
+    return this.findByIdAndUpdate(userId, { $set: modifier }, { new: true, runValidators: true })
+      .select('stripeCustomer stripeCard hasCardInformation')
+      .setOptions({ lean: true });
+  }
+
+  public static async createNewCardUpdateCustomer({ userId, stripeToken }) {
+    const user = await this.findById(userId, 'stripeCustomer');
+
+    logger.debug('called static method on User');
+
+    const newCardObj = await createNewCard({
+      customerId: user.stripeCustomer.id,
+      token: stripeToken.id,
+    });
+
+    logger.debug(newCardObj.id);
+
+    const updatedCustomerObj = await updateCustomer({
+      customerId: user.stripeCustomer.id,
+      newCardId: newCardObj.id,
+    });
+
+    const modifier = { stripeCustomer: updatedCustomerObj, stripeCard: newCardObj };
+
+    return this.findByIdAndUpdate(userId, { $set: modifier }, { new: true, runValidators: true })
+      .select('stripeCard')
+      .setOptions({ lean: true });
+  }
+
+  public static async getListOfInvoicesForCustomer({ userId }) {
+    const user = await this.findById(userId, 'stripeCustomer');
+
+    logger.debug('called static method on User');
+
+    const newListOfInvoices = await getListOfInvoices({
+      customerId: user.stripeCustomer.id,
+    });
+
+    const modifier = {
+      stripeListOfInvoices: newListOfInvoices,
+    };
+
+    if (!newListOfInvoices) {
+      throw new Error('There is no payment history.');
+    }
+
+    return this.findByIdAndUpdate(userId, { $set: modifier }, { new: true, runValidators: true })
+      .select('stripeListOfInvoices')
+      .setOptions({ lean: true });
+  }
+
+  public static async getTeamMembers({ userId, teamId }) {
     const team = await this.checkPermissionAndGetTeam({ userId, teamId });
 
     return this.find({ _id: { $in: team.memberIds } })
       .select(this.publicFields().join(' '))
-      .lean();
+      .setOptions({ lean: true });
   }
 
-  static async signInOrSignUp({ googleId, email, googleToken, displayName, avatarUrl }) {
+  public static async signInOrSignUp({
+    googleId, email, googleToken, displayName, avatarUrl,
+  }) {
     const user = await this.findOne({ googleId })
       .select(this.publicFields().join(' '))
-      .lean();
+      .setOptions({ lean: true });
 
     if (user) {
       if (_.isEmpty(googleToken)) {
@@ -200,11 +339,13 @@ class UserClass extends mongoose.Model {
       defaultTeamSlug: '',
     });
 
+    const hasInvitation = (await Invitation.countDocuments({ email })) > 0;
+
     const template = await getEmailTemplate('welcome', {
       userName: displayName,
     });
 
-    if ((await Invitation.find({ email: email }).count()) === 0) {
+    if (!hasInvitation) {
       try {
         await sendEmail({
           from: `Kelly from async-await.com <${process.env.EMAIL_SUPPORT_FROM_ADDRESS}>`,
@@ -227,6 +368,39 @@ class UserClass extends mongoose.Model {
     }
 
     return _.pick(newUser, this.publicFields());
+  }
+
+  public static publicFields(): string[] {
+    return [
+      '_id',
+      'id',
+      'displayName',
+      'email',
+      'avatarUrl',
+      'slug',
+      'isGithubConnected',
+      'defaultTeamSlug',
+      'hasCardInformation',
+      'stripeCustomer',
+      'stripeCard',
+      'stripeListOfInvoices',
+    ];
+  }
+
+  public static async checkPermissionAndGetTeam({ userId, teamId }) {
+    if (!userId || !teamId) {
+      throw new Error('Bad data');
+    }
+
+    const team = await Team.findById(teamId)
+      .select('memberIds')
+      .setOptions({ lean: true });
+
+    if (!team || team.memberIds.indexOf(userId) === -1) {
+      throw new Error('Team not found');
+    }
+
+    return team;
   }
 }
 

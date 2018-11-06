@@ -1,93 +1,93 @@
-import React from 'react';
-import { observer, inject } from 'mobx-react';
 import Avatar from '@material-ui/core/Avatar';
+import { inject, observer } from 'mobx-react';
+import React from 'react';
 
-import ActiveLink from '../common/ActiveLink';
 import { Store } from '../../lib/store';
+import ActiveLink from './ActiveLink';
 
 const styleTeamAvatar = {
   margin: '0px auto',
 };
 
-const styleLoadingDiv = {
+const styleNotFoundDiv = {
   padding: '20px',
 };
 
-type MyProps = { store: Store; isTL: boolean };
+type MyProps = { store: Store; isTeamSettings: boolean };
 
-@inject('store')
-@observer
 class SettingList extends React.Component<MyProps> {
-  state = {
-    addPublicTopicOpen: false,
-  };
-
-  render() {
-    const { store, isTL } = this.props;
+  public render() {
+    const { store, isTeamSettings } = this.props;
     const { currentTeam, currentUser } = store;
 
-    if (!currentTeam) {
-      return <div style={styleLoadingDiv}>Create new team or select existing team.</div>;
-    }
-
-    if (!currentTeam.isInitialTopicsLoaded) {
-      return <div style={styleLoadingDiv}>loading Topics ...</div>;
+    if (!currentTeam && isTeamSettings) {
+      return (
+        <div style={styleNotFoundDiv}>
+          No Team is found. Create new Team or select existing Team.
+        </div>
+      );
     }
 
     return (
-      <div>
-        {isTL ? (
-          <div>
+      <React.Fragment>
+        {isTeamSettings ? (
+          <React.Fragment>
             <h3>Team Settings</h3>
             <Avatar style={styleTeamAvatar} src={currentTeam.avatarUrl} />
             <p style={{ textAlign: 'center' }}>{currentTeam.name}</p>
-            <hr style={{ width: '75%', margin: '0px auto' }} />
-          </div>
-        ) : null}
-        {isTL ? (
-          <div>
-            <p />
-            <p />
-            <ActiveLink
-              linkText="Team Members"
-              href={`/settings/team-members?teamSlug=${currentTeam.slug}`}
-              as={`/team/${currentTeam.slug}/settings/team-members`}
-              highlighterSlug={'/team-members'}
-            />
-            <p />
-            <ActiveLink
-              linkText="Team Billing"
-              href={`/settings/team-billing?teamSlug=${currentTeam.slug}`}
-              as={`/team/${currentTeam.slug}/settings/team-billing`}
-              highlighterSlug={'/team-billing'}
-            />
-            <p />
-            <ActiveLink
-              linkText="Team Profile"
-              href={`/settings/team-profile?teamSlug=${currentTeam.slug}`}
-              as={`/team/${currentTeam.slug}/settings/team-profile`}
-              highlighterSlug={'/team-settings'}
-            />
-            <p />
-            <hr style={{ width: '100%', margin: '20px auto' }} />
-          </div>
-        ) : null}
-
-        <h3>Profile settings</h3>
-        <Avatar style={styleTeamAvatar} src={currentUser.avatarUrl} />
-        <p style={{ textAlign: 'center' }}>{currentUser.displayName}</p>
-        <hr style={{ width: '75%', margin: '0px auto' }} />
-
-        <p />
-        <p />
-        <ActiveLink
-          linkText="Your Profile"
-          href={`/settings/your-profile`}
-          highlighterSlug={'/your-profile'}
-        />
-      </div>
+            <hr style={{ width: '75%', margin: '-10px auto 20px auto' }} />
+            <div>
+              <p />
+              <p />
+              <ActiveLink
+                hasIcon
+                linkText="Team Members"
+                href={`/settings/team-members?teamSlug=${currentTeam.slug}`}
+                as={`/team/${currentTeam.slug}/settings/team-members`}
+                highlighterSlug={'/settings/team-members'}
+              />
+              <p />
+              <ActiveLink
+                hasIcon
+                linkText="Team Billing"
+                href={`/settings/team-billing?teamSlug=${currentTeam.slug}`}
+                as={`/team/${currentTeam.slug}/settings/team-billing`}
+                highlighterSlug={'/settings/team-billing'}
+              />
+              <p />
+              <ActiveLink
+                hasIcon
+                linkText="Team Profile"
+                href={`/settings/team-profile?teamSlug=${currentTeam.slug}`}
+                as={`/team/${currentTeam.slug}/settings/team-profile`}
+                highlighterSlug={'/settings/team-profile'}
+              />
+              <p />
+            </div>
+          </React.Fragment>
+        ) : (
+          <React.Fragment>
+            <h3>Your Settings</h3>
+            <Avatar style={styleTeamAvatar} src={currentUser.avatarUrl} />
+            <p style={{ textAlign: 'center' }}>{currentUser.displayName}</p>
+            <hr style={{ width: '75%', margin: '-10px auto 20px auto' }} />
+            <div>
+              <p />
+              <p />
+              <ActiveLink
+                hasIcon
+                linkText="Your Settings"
+                href="/settings/your-settings"
+                as="/settings/your-settings"
+                highlighterSlug="/settings/your-settings"
+              />
+              <p />
+            </div>
+          </React.Fragment>
+        )}
+      </React.Fragment>
     );
   }
 }
 
-export default SettingList;
+export default inject('store')(observer(SettingList));

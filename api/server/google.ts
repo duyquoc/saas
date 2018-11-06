@@ -1,8 +1,9 @@
 import * as passport from 'passport';
 import { OAuth2Strategy as Strategy } from 'passport-google-oauth';
 
-import User, { IUserDocument } from './models/User';
+import logger from './logs';
 import Invitation from './models/Invitation';
+import User, { IUserDocument } from './models/User';
 
 const dev = process.env.NODE_ENV !== 'production';
 const { PRODUCTION_URL_APP } = process.env;
@@ -36,7 +37,7 @@ export default function auth({ ROOT_URL, server }) {
       verified(null, user);
     } catch (err) {
       verified(err);
-      console.log(err); // eslint-disable-line
+      logger.error(err); // eslint-disable-line
     }
   };
 
@@ -93,21 +94,19 @@ export default function auth({ ROOT_URL, server }) {
     (req, res) => {
       if (req.user && req.session.invitationToken) {
         Invitation.addUserToTeam({ token: req.session.invitationToken, user: req.user }).catch(
-          err => console.log(err),
+          err => logger.error(err),
         );
       }
 
       let redirectUrlAfterLogin;
 
-      if (req.user && req.user.isAdmin) {
-        redirectUrlAfterLogin = `/admin`;
-      } else if (req.session.next_url) {
+      if (req.user && req.session.next_url) {
         redirectUrlAfterLogin = req.session.next_url;
       } else {
         if (!req.user.defaultTeamSlug) {
-          redirectUrlAfterLogin = '/settings/create-team';
+          redirectUrlAfterLogin = '/create-team';
         } else {
-          redirectUrlAfterLogin = `/team/${req.user.defaultTeamSlug}/t/projects`;
+          redirectUrlAfterLogin = `/team/${req.user.defaultTeamSlug}/discussions`;
         }
       }
 
